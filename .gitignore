@@ -1,0 +1,18 @@
+# === Python ===
+**/__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+
+# === Virtual Environments ===
+dag-builder-backend/venv_dag_builder_backend/
+
+# === Environment Files ===
+*.env
+.env.*
+backend/.env
+
+# === Node.js ===
+dag-builder/node_modules/
+dag-builder/.env
+dag-builder/.env.*
