@@ -8,6 +8,7 @@ import ReactFlow, {
   useReactFlow,
 } from 'reactflow';
 import 'reactflow/dist/style.css';
+import NodeConfigModal from './NodeConfigModal';
 
 const initialNodes = [];
 const initialEdges = [];
@@ -15,15 +16,50 @@ const initialEdges = [];
 const nodeTypesList = [
   { type: 'dag_id', label: 'Set Dag Name' },
   { type: 'generate_id', label: 'Generate Execution ID' },
-  { type: 'create_env', label: 'Create Runtime Env' },
-  { type: 'run_script', label: 'Run Script' },
-  { type: 'upload_mlflow', label: 'Upload to MLflow' },
+  { type: 'create_env', label: 'Create Runtime Environment' },
+  { type: 'register_dag', label: 'Register Workflow' },
+  { type: 'download_dataset', label: 'Download Dataset' },
+  { type: 'download_code', label: 'Download Code Repository' },
+  { type: 'add_config', label: 'Inject Config' },
+  { type: 'run_script', label: 'Execute Training Script' },
+  { type: 'upload_mlflow', label: 'Upload Experiment' },
+  { type: 'upload_log', label: 'Upload Log' },
+  { type: 'release_env', label: 'Release Runtime Environment' },
 ];
 
 const componentParams = {
   dag_id: [{ key: 'dagName', label: 'DAG 名稱' }],
   generate_id: [{ key: 'prefix', label: 'ID 前綴' }],
 };
+
+const paramSchemas = {
+  download_dataset: [
+    { key: 'dataset_name', label: 'Dataset Name', type: 'text' },
+    { key: 'dataset_version', label: 'Dataset Version', type: 'text' },
+    { key: 'dvc_repo', label: 'DVC Repo URL', type: 'text' },
+  ],
+  create_env: [
+    { key: 'image_name', label: 'Image Name', type: 'text' },
+    { key: 'image_tag', label: 'Image Tag', type: 'text' },
+    { key: 'export_port', label: 'Export Port', type: 'number' },
+  ],
+  run_script: [
+    { key: 'script_list', label: 'Script(s)', type: 'textlist' },
+    { key: 'image_name', label: 'Image Name', type: 'text' },
+  ],
+  upload_mlflow: [
+    { key: 'script_name', label: 'MLflow Script Name', type: 'text' },
+  ],
+  
+  upload_log: [
+    { key: 'log_path', label: 'Log File Path', type: 'text' },
+  ],
+  
+  release_env: [
+    { key: 'target_service', label: 'Service Name to Release', type: 'text' },
+  ],
+  // 可擴充其他元件
+}
 
 export default function DagEditor() {
   const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
@@ -37,6 +73,17 @@ export default function DagEditor() {
   const { screenToFlowPosition } = useReactFlow();
   const reactFlowWrapper = useRef(null);
 
+  const getDefaultLabel = (type, config = {}) => {
+    const baseLabel = nodeTypesList.find((n) => n.type === type)?.label || 'Unknown';
+  
+    // 只有 dag_id 類型要加上名稱
+    if (type === 'dag_id' && config.dagName) {
+      return `${baseLabel}: ${config.dagName}`;
+    }
+  
+    return baseLabel;
+  };
+
   const onConnect = useCallback(
     (params) => setEdges((eds) => addEdge(params, eds)),
     [setEdges]
@@ -46,23 +93,26 @@ export default function DagEditor() {
     (event) => {
       event.preventDefault();
       const nodeType = event.dataTransfer.getData('application/reactflow');
-
+  
       if (!reactFlowWrapper.current) return;
       const bounds = reactFlowWrapper.current.getBoundingClientRect();
-
+  
       const position = screenToFlowPosition({
         x: event.clientX - bounds.left,
         y: event.clientY - bounds.top,
       });
-
+  
+      const config = {};  // 預設空 config
+      const label = getDefaultLabel(nodeType, config);
+  
       const newNode = {
         id: `node-${idCounter}`,
         type: 'default',
         position,
         data: {
           type: nodeType,
-          label: nodeTypesList.find((n) => n.type === nodeType)?.label || 'Unknown',
-          config: {},
+          config,
+          label, // ✅ 初始即有 label
         },
         style: {
           padding: 10,
@@ -72,12 +122,13 @@ export default function DagEditor() {
           width: 180,
         },
       };
-
+  
       setNodes((nds) => nds.concat(newNode));
       setIdCounter((id) => id + 1);
     },
     [idCounter, screenToFlowPosition]
   );
+  
 
   const onDragOver = (event) => {
     event.preventDefault();
@@ -86,12 +137,17 @@ export default function DagEditor() {
 
   useEffect(() => {
     const handleKeyDown = (event) => {
+      const activeTag = document.activeElement?.tagName;
+      const isTyping = activeTag === 'INPUT' || activeTag === 'TEXTAREA';
+  
+      if (isTyping) return; // 💡 正在輸入中，不處理刪除
+  
       if (event.key === 'Delete' || event.key === 'Backspace') {
         setNodes((nds) => nds.filter((n) => !selectedNodes.some((sn) => sn.id === n.id)));
         setEdges((eds) => eds.filter((e) => !selectedEdges.some((se) => se.id === e.id)));
       }
     };
-
+  
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [selectedNodes, selectedEdges]);
@@ -107,10 +163,16 @@ export default function DagEditor() {
 
   const handleSaveConfig = () => {
     if (!editingNode) return;
-    const newLabel = editingNode.data.type === 'dag_id'
-      ? `${editingNode.data.label.split(':')[0]}: ${formState.dagName || ''}`
-      : editingNode.data.label.split(':')[0];
-
+  
+    const type = editingNode.data.type;
+    const baseLabel = nodeTypesList.find((n) => n.type === type)?.label || type;
+    const config = { ...formState };
+  
+    const newLabel =
+      type === 'dag_id' && config.dagName
+        ? `${baseLabel}: ${config.dagName}`
+        : baseLabel;
+  
     setNodes((nds) =>
       nds.map((n) =>
         n.id === editingNode.id
@@ -118,13 +180,14 @@ export default function DagEditor() {
               ...n,
               data: {
                 ...n.data,
-                config: { ...formState },
-                label: newLabel,
+                config,
+                label: newLabel || baseLabel, // fallback for first render
               },
             }
           : n
       )
     );
+  
     setEditingNode(null);
     setFormState({});
   };
@@ -150,6 +213,9 @@ export default function DagEditor() {
       dag_name: dagName,
       tasks,
     };
+    // 這行會把 JSON 印出來
+    console.log("產出 JSON:", payload);
+    setDagJson(payload); // 💡 顯示 JSON 結構
 
     try {
       const res = await fetch('http://localhost:8000/deploy-dag', {
@@ -209,36 +275,26 @@ export default function DagEditor() {
           <Controls />
         </ReactFlow>
 
-        {editingNode && (
-          <div
-            style={{
-              position: 'absolute',
-              top: 10,
-              left: 220,
-              background: '#fff',
-              padding: 10,
-              border: '1px solid #aaa',
-              borderRadius: 6,
-              boxShadow: '0 2px 6px rgba(0,0,0,0.1)',
-              zIndex: 10,
-              minWidth: 200,
-            }}
-          >
-            <h4 style={{ margin: '0 0 8px 0' }}>{editingNode.data.label.split(':')[0]} 設定</h4>
-            {componentParams[editingNode.data.type]?.map((param) => (
-              <div key={param.key} style={{ marginBottom: 6 }}>
-                <label>{param.label}</label>
-                <input
-                  type="text"
-                  value={formState[param.key] || ''}
-                  onChange={(e) => handleParamChange(param.key, e.target.value)}
-                  style={{ width: '100%' }}
-                />
-              </div>
-            ))}
-            <button onClick={handleSaveConfig} style={{ marginTop: 6 }}>儲存</button>
+        {dagJson && (
+          <div style={{ position: 'absolute', bottom: 0, right: 0, width: '40%', maxHeight: '40%', overflowY: 'auto', background: '#f9f9f9', border: '1px solid #ccc', padding: 10, fontSize: 12 }}>
+            <strong>產出 JSON 預覽</strong>
+            <pre>{JSON.stringify(dagJson, null, 2)}</pre>
           </div>
         )}
+
+        {editingNode && (
+          <NodeConfigModal
+            node={editingNode}
+            formState={formState}
+            onChange={handleParamChange}
+            onSave={handleSaveConfig}
+            onClose={() => setEditingNode(null)}
+            paramSchemas={paramSchemas}
+            componentParams={componentParams}
+          />
+        )}       
+
+        
       </div>
     </div>
   );
