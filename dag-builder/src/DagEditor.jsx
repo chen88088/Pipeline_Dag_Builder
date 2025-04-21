@@ -15,7 +15,6 @@ const initialEdges = [];
 
 const nodeTypesList = [
   { type: 'dag_id', label: 'Set Dag Name' },
-  { type: 'generate_id', label: 'Generate Execution ID' },
   { type: 'create_env', label: 'Create Runtime Environment' },
   { type: 'register_dag', label: 'Register Workflow' },
   { type: 'download_dataset', label: 'Download Dataset' },
@@ -29,15 +28,14 @@ const nodeTypesList = [
 
 const componentParams = {
   dag_id: [{ key: 'dagName', label: 'DAG 名稱' }],
-  // generate_id: [{ key: 'prefix', label: 'ID 前綴' }],
 };
 
 const paramSchemas = {
-  create_env: [
-    { key: 'image_name', label: 'Image Name', type: 'text' },
-    { key: 'image_tag', label: 'Image Tag', type: 'text' },
-    { key: 'export_port', label: 'Export Port', type: 'number' },
-  ],
+  // create_env: [
+  //   { key: 'image_name', label: 'Image Name', type: 'text' },
+  //   { key: 'image_tag', label: 'Image Tag', type: 'text' },
+  //   { key: 'export_port', label: 'Export Port', type: 'number' },
+  // ],
   download_dataset: [
     { key: 'dataset_name', label: 'Dataset Name', type: 'text' },
     { key: 'dataset_version', label: 'Dataset Version', type: 'text' },
