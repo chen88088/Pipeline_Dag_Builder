@@ -29,19 +29,25 @@ const nodeTypesList = [
 
 const componentParams = {
   dag_id: [{ key: 'dagName', label: 'DAG 名稱' }],
-  generate_id: [{ key: 'prefix', label: 'ID 前綴' }],
+  // generate_id: [{ key: 'prefix', label: 'ID 前綴' }],
 };
 
 const paramSchemas = {
+  create_env: [
+    { key: 'image_name', label: 'Image Name', type: 'text' },
+    { key: 'image_tag', label: 'Image Tag', type: 'text' },
+    { key: 'export_port', label: 'Export Port', type: 'number' },
+  ],
   download_dataset: [
     { key: 'dataset_name', label: 'Dataset Name', type: 'text' },
     { key: 'dataset_version', label: 'Dataset Version', type: 'text' },
     { key: 'dvc_repo', label: 'DVC Repo URL', type: 'text' },
   ],
-  create_env: [
-    { key: 'image_name', label: 'Image Name', type: 'text' },
-    { key: 'image_tag', label: 'Image Tag', type: 'text' },
-    { key: 'export_port', label: 'Export Port', type: 'number' },
+  download_code: [
+    { key: 'code_repo_url', label: 'Code Repo URL', type: 'text' },
+  ],
+  add_config: [
+    { key: 'config_params', label: 'Custom Params', type: 'kvlist' },
   ],
   run_script: [
     { key: 'script_list', label: 'Script(s)', type: 'textlist' },
@@ -51,13 +57,13 @@ const paramSchemas = {
     { key: 'script_name', label: 'MLflow Script Name', type: 'text' },
   ],
   
-  upload_log: [
-    { key: 'log_path', label: 'Log File Path', type: 'text' },
-  ],
+  // upload_log: [
+  //   { key: 'log_path', label: 'Log File Path', type: 'text' },
+  // ],
   
-  release_env: [
-    { key: 'target_service', label: 'Service Name to Release', type: 'text' },
-  ],
+  // release_env: [
+  //   { key: 'target_service', label: 'Service Name to Release', type: 'text' },
+  // ],
   // 可擴充其他元件
 }
 
@@ -153,6 +159,7 @@ export default function DagEditor() {
   }, [selectedNodes, selectedEdges]);
 
   const handleNodeDoubleClick = (event, node) => {
+    console.log("點到的節點類型：", node.data.type);
     setEditingNode(node);
     setFormState(node.data.config || {});
   };

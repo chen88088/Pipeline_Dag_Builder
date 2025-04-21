@@ -12,6 +12,7 @@ export default function NodeConfigModal({
   if (!node) return null;
 
   const fields = componentParams[node.data.type] || paramSchemas[node.data.type] || [];
+  console.log("載入欄位", fields);
 
   return (
     <div
@@ -34,29 +35,86 @@ export default function NodeConfigModal({
         {node.data.label.split(':')[0]} 設定
       </h4>
 
-      {fields.map((param) => (
-        <div key={param.key} style={{ marginBottom: 6 }}>
-          <label>{param.label}</label>
+      {fields.map((param) => {
+        if (param.type === 'kvlist') {
+          const kvList = formState[param.key] || [];
+
+          return (
+            <div key={param.key} style={{ marginBottom: 10 }}>
+              <label>{param.label}</label>
+              {kvList.map((pair, index) => (
+                <div key={index} style={{ display: 'flex', gap: 6, marginBottom: 4 }}>
+                  <input
+                    placeholder="Key"
+                    value={pair.key}
+                    onChange={(e) => {
+                      const updated = [...kvList];
+                      updated[index].key = e.target.value;
+                      onChange(param.key, updated);
+                    }}
+                    style={{ flex: 1 }}
+                  />
+                  <input
+                    placeholder="Value"
+                    value={pair.value}
+                    onChange={(e) => {
+                      const updated = [...kvList];
+                      updated[index].value = e.target.value;
+                      onChange(param.key, updated);
+                    }}
+                    style={{ flex: 1 }}
+                  />
+                  <button onClick={() => {
+                    const updated = kvList.filter((_, i) => i !== index);
+                    onChange(param.key, updated);
+                  }}>🗑</button>
+                </div>
+              ))}
+              <button
+                onClick={() => {
+                  const updated = [...kvList, { key: '', value: '' }];
+                  onChange(param.key, updated);
+                }}
+                style={{
+                  marginTop: 4,
+                  fontSize: 13,
+                  padding: '2px 6px',
+                  borderRadius: 4,
+                  background: '#f0f0f0',
+                  border: '1px solid #ccc',
+                  cursor: 'pointer'
+                }}
+              >
+                ➕ 新增參數對
+              </button>
+            </div>
+          );
+        }
+
+        return (
+          <div key={param.key} style={{ marginBottom: 6 }}>
+            <label>{param.label}</label>
             {param.type === 'textlist' ? (
-                <textarea
-                    rows={3}
-                    value={(formState[param.key] || []).join('\n')}
-                    onChange={(e) =>
-                    onChange(param.key, e.target.value.split('\n').filter((line) => line.trim() !== ''))
-                    }
-                    style={{ width: '100%' }}
-                    placeholder="每行一個腳本名稱"
-                />
-                ) : (
-                <input
-                    type={param.type === 'number' ? 'number' : 'text'}
-                    value={formState[param.key] || ''}
-                    onChange={(e) => onChange(param.key, e.target.value)}
-                    style={{ width: '100%' }}
-                />
+              <textarea
+                rows={3}
+                value={(formState[param.key] || []).join('\n')}
+                onChange={(e) =>
+                  onChange(param.key, e.target.value.split('\n').filter((line) => line.trim() !== ''))
+                }
+                style={{ width: '100%' }}
+                placeholder="每行一個腳本名稱"
+              />
+            ) : (
+              <input
+                type={param.type === 'number' ? 'number' : 'text'}
+                value={formState[param.key] || ''}
+                onChange={(e) => onChange(param.key, e.target.value)}
+                style={{ width: '100%' }}
+              />
             )}
-        </div>
-      ))}
+          </div>
+        );
+      })}
 
       {/* 儲存按鈕 */}
       <button
