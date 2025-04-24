@@ -10,6 +10,12 @@ import pprint
 from datetime import datetime
 import random
 import string
+from fastapi import HTTPException
+from service.gitlab_service import upload_to_gitlab
+from service.airflow_service import wait_for_dag_to_appear
+from config import Config
+import requests
+
 
 app = FastAPI()
 
@@ -212,4 +218,71 @@ def deploy_dag(payload: DAGPayload):
     with open(dag_file_path, "w") as f:
         f.write("\n".join(lines))
 
-    return {"message": "DAG written", "file": dag_file_name}
+    # === 讀取 DAG 內容並上傳到 GitLab ===
+    try:
+        with open(dag_file_path, "r") as f:
+            dag_content = f.read()
+
+        upload_result = upload_to_gitlab(
+            file_path=dag_file_name,
+            content=dag_content,
+            staging_folder="dags"  # 例如存到 GitLab 的 dags 資料夾
+        )
+
+        # 等待 DAG 出現在 Airflow 中（輪詢）
+        airflow_base_url = Config.AIRFLOW_BASE_URL  # 根據你實際情況修改
+        dag_url = wait_for_dag_to_appear(
+            dag_id=dag_name, 
+            airflow_base_url=airflow_base_url,
+            timeout=300,
+            auth=(Config.AIRFLOW_USERNAME, Config.AIRFLOW_PASSWORD)
+        )
+
+        print(f"airflow_url: {dag_url}")
+
+        return {
+            "message": "DAG uploaded and registered in Airflow",
+            "dag_id": dag_name,
+            "airflow_url": dag_url
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+class TriggerRequest(BaseModel):
+    dag_id: str
+    conf: dict = {}  # Optional, 可空白
+
+@app.post("/trigger-dag")
+def trigger_dag_run(request: TriggerRequest):
+    
+    auth = (Config.AIRFLOW_USERNAME, Config.AIRFLOW_PASSWORD)
+    base = Config.AIRFLOW_BASE_URL
+
+    # ✅ Step 1: Unpause the DAG
+    try:
+        unpause_url = f"{base}/api/v1/dags/{request.dag_id}"
+        unpause_payload = { "is_paused": False }
+        unpause_resp = requests.patch(unpause_url, json=unpause_payload, auth=auth)
+        unpause_resp.raise_for_status()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to unpause DAG: {e}")
+
+    try:
+        trigger_url = f"{Config.AIRFLOW_BASE_URL}/api/v1/dags/{request.dag_id}/dagRuns"
+        payload = {
+            "conf": request.conf
+        }
+        
+        resp = requests.post(trigger_url, json=payload, auth=auth)
+        resp.raise_for_status()
+        return {
+            "message": f"DAG {request.dag_id} triggered successfully.",
+            "run_id": resp.json().get("dag_run_id", "unknown"),
+            "trigger_time": resp.json().get("execution_date", "unknown")
+        }
+    except requests.HTTPError as e:
+        raise HTTPException(status_code=resp.status_code, detail=f"Failed to trigger DAG: {resp.text}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Unexpected error: {str(e)}")

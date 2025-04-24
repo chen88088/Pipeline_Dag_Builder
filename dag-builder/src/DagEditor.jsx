@@ -10,6 +10,7 @@ import ReactFlow, {
 import 'reactflow/dist/style.css';
 import NodeConfigModal from './NodeConfigModal';
 
+
 const initialNodes = [];
 const initialEdges = [];
 
@@ -66,6 +67,7 @@ const paramSchemas = {
 }
 
 export default function DagEditor() {
+  const [dagId, setDagId] = useState(null); // ⬅️ 加這一行
   const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
   const [idCounter, setIdCounter] = useState(1);
@@ -76,6 +78,7 @@ export default function DagEditor() {
   const [dagJson, setDagJson] = useState(null);
   const { screenToFlowPosition } = useReactFlow();
   const reactFlowWrapper = useRef(null);
+  const [triggerUrl, setTriggerUrl] = useState(null);
 
   const getDefaultLabel = (type, config = {}) => {
     const baseLabel = nodeTypesList.find((n) => n.type === type)?.label || 'Unknown';
@@ -229,9 +232,36 @@ export default function DagEditor() {
         body: JSON.stringify(payload),
       });
       const data = await res.json();
-      alert('✅ DAG 已部署: ' + data.file);
+      if (res.ok) {
+        alert("✅ DAG 已部署成功: " + data.dag_id);
+        setTriggerUrl(data.airflow_url);  // optional: 這是原本開 UI 用的
+        setDagId(data.dag_id);            // ✅ 實際用來觸發 API
+      } else {
+        alert("❌ DAG 部署失敗: " + data.detail);
+      }
     } catch (err) {
-      alert('❌ 發送失敗：' + err.message);
+      alert("❌ 伺服器錯誤: " + err.message);
+    }
+  };
+
+  const triggerDAG = async () => {
+    if (!dagId) {
+      alert("❌ 無法觸發，DAG ID 未設定");
+      return;
+    }
+  
+    const response = await fetch("http://localhost:8000/trigger-dag", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ dag_id: dagId }),
+    });
+  
+    const data = await response.json();
+  
+    if (response.ok) {
+      alert("✅ 成功觸發 DAG: " + data.run_id);
+    } else {
+      alert("❌ 觸發失敗: " + data.detail);
     }
   };
 
@@ -257,7 +287,39 @@ export default function DagEditor() {
             {node.label}
           </div>
         ))}
-        <button onClick={generateDag} style={{ marginTop: 20 }}>🚀 產生並部署 DAG</button>
+        <button 
+          onClick={generateDag} 
+          // style={{ marginTop: 20 }}
+          style={{
+            background: '#28a745',
+            color: '#fff',
+            padding: '10px 16px',
+            borderRadius: 6,
+            border: 'none',
+            cursor: 'pointer',
+          }}
+        >
+            
+            🚀 產生並部署 DAG
+
+        </button>
+        {dagId && (
+          <div style={{ marginTop: 10 }}>
+            <button
+              onClick={triggerDAG}
+              style={{
+                background: '#007bff',
+                color: '#fff',
+                padding: '10px 16px',
+                borderRadius: 6,
+                border: 'none',
+                cursor: 'pointer',
+              }}
+            >
+              ▶️ Trigger DAG
+            </button>
+          </div>
+        )}
       </div>
 
       <div style={{ flexGrow: 1, height: '100%', position: 'relative' }} ref={reactFlowWrapper}>
