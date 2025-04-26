@@ -6,6 +6,7 @@
 
 # === Virtual Environments ===
 dag-builder-backend/venv_dag_builder_backend/
+dag-builder-backend/mlruns/*
 
 # === Environment Files ===
 *.env
