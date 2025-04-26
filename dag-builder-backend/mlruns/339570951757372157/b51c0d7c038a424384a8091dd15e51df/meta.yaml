@@ -1,0 +1,15 @@
+artifact_uri: file:///home/pongesheng/thesis/Pipeline_Dag_Builder/dag-builder-backend/mlruns/339570951757372157/b51c0d7c038a424384a8091dd15e51df/artifacts
+end_time: null
+entry_point_name: ''
+experiment_id: '339570951757372157'
+lifecycle_stage: active
+run_id: b51c0d7c038a424384a8091dd15e51df
+run_name: mmyydag_20250426x081222xxp7kqxm
+run_uuid: b51c0d7c038a424384a8091dd15e51df
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1745655941960
+status: 1
+tags: []
+user_id: pongesheng

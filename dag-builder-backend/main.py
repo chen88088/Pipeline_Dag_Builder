@@ -15,6 +15,8 @@ from service.gitlab_service import upload_to_gitlab
 from service.airflow_service import wait_for_dag_to_appear
 from config import Config
 import requests
+from urllib.parse import quote
+import mlflow
 
 
 app = FastAPI()
@@ -147,6 +149,11 @@ def deploy_dag(payload: DAGPayload):
         "        send_message_to_kafka({\"TASK_ID\": self.route, \"TASK_API_RESPOND\": result}, self.kafka_conf, self.kafka_topic)",
         "",
         "def call_api_task(ti, info_source_task_ids, route, body, kafka_conf, kafka_topic):",
+        "    dag_run = ti.get_dagrun()",
+        "    reserved_run_id = dag_run.conf.get('reserved_run_id') if dag_run else None",
+        "    if reserved_run_id:",
+        "        body = dict(body)  # 複製一份，避免汙染到原本的 body_config",
+        "        body['reserved_run_id'] = reserved_run_id",
         "    ApiCaller(ti, info_source_task_ids, route, body, kafka_conf, kafka_topic).call_api()",
         ""
     ]
@@ -243,7 +250,8 @@ def deploy_dag(payload: DAGPayload):
         return {
             "message": "DAG uploaded and registered in Airflow",
             "dag_id": dag_name,
-            "airflow_url": dag_url
+            "airflow_url": dag_url,
+            "body_config": global_body
         }
 
     except Exception as e:
@@ -260,7 +268,40 @@ def trigger_dag_run(request: TriggerRequest):
     auth = (Config.AIRFLOW_USERNAME, Config.AIRFLOW_PASSWORD)
     base = Config.AIRFLOW_BASE_URL
 
-    # ✅ Step 1: Unpause the DAG
+    # ✅ Step 1: 預約一個空的 run_id
+    try:
+        experiment_name = request.conf.get("experiment_name")
+        experiment_run_name = request.conf.get("experiment_run_name")
+        body_config = request.conf.get("body_config")
+
+        if not experiment_name or not experiment_run_name:
+            raise HTTPException(status_code=400, detail="experiment_name and experiment_run_name are required in conf")
+        
+        if not body_config:
+            raise HTTPException(status_code=400, detail="body_config is required in conf")
+        
+        mlflow.set_tracking_uri("http://10.52.52.142:5000")
+
+        mlflow.set_experiment(experiment_name)
+        run = mlflow.start_run(run_name=experiment_run_name)
+        mlflow_exp_run_id = run.info.run_id
+
+        # ✅ 這裡直接設定 tags：把整個 request.conf 壓成 tags
+        tags_to_set = {f"{k}": str(v) for k, v in request.conf.items()}
+        mlflow.set_tags(tags_to_set)
+
+        mlflow.log_param("reserved", "true")
+
+
+        mlflow.end_run()  # 先關掉，之後 server 會用 run_id來繼續
+
+        # 把預約好的 run_id 放進 conf
+        request.conf["reserved_run_id"] = mlflow_exp_run_id
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to reserve MLflow run: {e}")
+
+    # ✅ Step 2: Unpause the DAG
     try:
         unpause_url = f"{base}/api/v1/dags/{request.dag_id}"
         unpause_payload = { "is_paused": False }
@@ -268,7 +309,10 @@ def trigger_dag_run(request: TriggerRequest):
         unpause_resp.raise_for_status()
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to unpause DAG: {e}")
+    
+    
 
+    # ✅ Step 3: Trigger the DAG
     try:
         trigger_url = f"{Config.AIRFLOW_BASE_URL}/api/v1/dags/{request.dag_id}/dagRuns"
         payload = {
@@ -279,10 +323,54 @@ def trigger_dag_run(request: TriggerRequest):
         resp.raise_for_status()
         return {
             "message": f"DAG {request.dag_id} triggered successfully.",
-            "run_id": resp.json().get("dag_run_id", "unknown"),
+            "dag_run_id": resp.json().get("dag_run_id", "unknown"),
+            "reserved_exp_run_id": mlflow_exp_run_id,
             "trigger_time": resp.json().get("execution_date", "unknown")
         }
     except requests.HTTPError as e:
         raise HTTPException(status_code=resp.status_code, detail=f"Failed to trigger DAG: {resp.text}")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Unexpected error: {str(e)}")
+    
+def get_experiment_id_by_name(experiment_name: str) -> str:
+    mlflow_server = "http://10.52.52.142:5000"
+    url = f"{mlflow_server}/api/2.0/mlflow/experiments/get-by-name?experiment_name={experiment_name}"
+    resp = requests.get(url)
+    if resp.status_code != 200:
+        raise Exception(f"❌ 查詢 experiment_id 失敗: {resp.text}")
+    data = resp.json()
+    return data["experiment"]["experiment_id"]
+
+@app.get("/dag-status")
+def check_dag_status(dag_id: str, dag_run_id: str, reserved_exp_run_id:str):
+    auth = (Config.AIRFLOW_USERNAME, Config.AIRFLOW_PASSWORD)
+    base = Config.AIRFLOW_BASE_URL
+
+    # 必須 encode run_id !!!
+    encoded_run_id = quote(dag_run_id, safe="")  # safe="" 表示全編碼
+
+    url = f"{base}/api/v1/dags/{dag_id}/dagRuns/{encoded_run_id}"
+
+    print(f"打 API URL：{url}")
+
+    resp = requests.get(url, auth=auth)
+    if resp.status_code != 200:
+        raise HTTPException(status_code=resp.status_code, detail=resp.text)
+
+    state = resp.json().get("state")
+
+    if state == "success":
+        
+        experiment_name = dag_id  # 你可以用 dag_id或body_config帶的
+        experiment_id = get_experiment_id_by_name(experiment_name)
+
+        mlflow_url = f"http://10.52.52.142:5000/#/experiments/{experiment_id}/runs/{reserved_exp_run_id}"
+        
+        return {
+            "state": "success",
+            "mlflow_url": mlflow_url,
+            "kibana_url": f"http://10.52.52.142:30601/app/discover#/?q=execution_id:20250424x105023xx2azipz",
+            "minio_url": "http://10.52.52.138:30000/minio/testdvcfilemanagementfordag/mmyydag_20250424x105023xx2azipz/"
+        }
+    else:
+        return {"state": state}

@@ -79,6 +79,35 @@ export default function DagEditor() {
   const { screenToFlowPosition } = useReactFlow();
   const reactFlowWrapper = useRef(null);
   const [triggerUrl, setTriggerUrl] = useState(null);
+  const [startPolling, setStartPolling] = useState(false);
+  const [dagRunId, setDagRunId] = useState(null);
+  const [bodyConfig, setBodyConfig] = useState(null);
+  const [reservedExpRunId, setReservedExpRunId] = useState()
+  
+
+  const [mlflowUrl, setMlflowUrl] = useState(null);
+  const [kibanaUrl, setKibanaUrl] = useState(null);
+  const [minioUrl, setMinioUrl] = useState(null);
+
+  useEffect(() => {
+    if (dagId && dagRunId) {
+      const interval = setInterval(async () => {
+        const response = await fetch(`http://localhost:8000/dag-status?dag_id=${dagId}&dag_run_id=${dagRunId}`);
+        const data = await response.json();
+
+        if (data.state === "success") {
+          clearInterval(interval);
+          alert("✅ DAG 執行完成！");
+
+          setMlflowUrl(data.mlflow_url);
+          setKibanaUrl(data.kibana_url);
+          setMinioUrl(data.minio_url);
+        }
+      }, 5000);
+
+      return () => clearInterval(interval);
+    }
+  }, [dagId, dagRunId]);
 
   const getDefaultLabel = (type, config = {}) => {
     const baseLabel = nodeTypesList.find((n) => n.type === type)?.label || 'Unknown';
@@ -141,6 +170,47 @@ export default function DagEditor() {
     event.preventDefault();
     event.dataTransfer.dropEffect = 'move';
   };
+
+  useEffect(() => {
+    if (dagId && dagRunId && startPolling) {
+      const interval = setInterval(async () => {
+        try {
+          const response = await fetch(`http://localhost:8000/dag-status?dag_id=${dagId}&dag_run_id=${dagRunId}&reserved_exp_run_id=${reservedExpRunId}`);
+          if (response.status === 404) {
+            console.log("DAG Run 還沒註冊完成，稍後再試");
+            return; // 這次跳過
+          }
+  
+          const data = await response.json();
+  
+          if (data.state === "success") {
+            clearInterval(interval);
+            alert("✅ DAG 執行完成！");
+            setMlflowUrl(data.mlflow_url);
+            setKibanaUrl(data.kibana_url);
+            setMinioUrl(data.minio_url);
+          }
+          else if (data.state === "failed") {
+            clearInterval(interval);
+            alert("❌ DAG 執行失敗，請檢查 Airflow Log！");
+          }
+            // 如果是 running, queued, 等狀態就繼續輪詢
+          else if (response.status === 404) {
+            console.log("⏳ DAG Run 還沒註冊，稍後再試...");
+          }
+          // pollingAttempts += 1;
+          // if (pollingAttempts > 12) {  // 12次 = 約1分鐘
+          //  clearInterval(interval);
+          //  alert("⚠️ DAG 超過1分鐘未完成，請手動確認 Airflow！");
+          //}
+        } catch (err) {
+          console.error("查詢 DAG Run 狀態失敗", err);
+        }
+      }, 5000);
+  
+      return () => clearInterval(interval);
+    }
+  }, [dagId, dagRunId, startPolling]);
 
   useEffect(() => {
     const handleKeyDown = (event) => {
@@ -236,6 +306,7 @@ export default function DagEditor() {
         alert("✅ DAG 已部署成功: " + data.dag_id);
         setTriggerUrl(data.airflow_url);  // optional: 這是原本開 UI 用的
         setDagId(data.dag_id);            // ✅ 實際用來觸發 API
+        setBodyConfig(data.body_config);   // ✅ 加這行！把 body_config存起來
       } else {
         alert("❌ DAG 部署失敗: " + data.detail);
       }
@@ -249,17 +320,40 @@ export default function DagEditor() {
       alert("❌ 無法觸發，DAG ID 未設定");
       return;
     }
+    if (!bodyConfig) {
+      alert("❌ 無法觸發，body_config 未設定");
+      return;
+    }
+  
+    const experimentName = bodyConfig.DAG_ID;  // 用 DAG_ID 當 experiment_name
+    const executionId = bodyConfig.EXECUTION_ID;  // 本次 execution_id
+    const experimentRunName = `${experimentName}_${executionId}`;  // ✅ 正確格式，dag_id + execution_id
   
     const response = await fetch("http://localhost:8000/trigger-dag", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ dag_id: dagId }),
+      body: JSON.stringify({ 
+        dag_id: dagId,
+        conf: {
+          experiment_name: experimentName,
+          experiment_run_name: experimentRunName,
+          body_config: bodyConfig
+        }
+       }),
     });
   
     const data = await response.json();
   
     if (response.ok) {
-      alert("✅ 成功觸發 DAG: " + data.run_id);
+      alert("✅ 成功觸發 DAG: " + data.dag_run_id);
+      const encodedRunId = encodeURIComponent(data.dag_run_id);  // 必須這一行！！encode成安全格式
+      setDagRunId(encodedRunId);  // 這樣才存的是正確的 run_id！
+      setReservedExpRunId(data.reserved_exp_run_id); // 用來之後按按鈕跳MLflow！
+
+      // 💡 加這個：
+      setTimeout(() => {
+        setStartPolling(true);  // 可以控制開始輪詢
+      }, 5000);  // 5秒後再啟動輪詢
     } else {
       alert("❌ 觸發失敗: " + data.detail);
     }
@@ -300,7 +394,7 @@ export default function DagEditor() {
           }}
         >
             
-            🚀 產生並部署 DAG
+            產生並部署 DAG
 
         </button>
         {dagId && (
@@ -316,11 +410,68 @@ export default function DagEditor() {
                 cursor: 'pointer',
               }}
             >
-              ▶️ Trigger DAG
+              Trigger DAG
             </button>
           </div>
         )}
       </div>
+
+      {mlflowUrl && kibanaUrl && minioUrl && (
+        <div
+          style={{
+            marginTop: 10,
+            display: 'flex',
+            flexDirection: 'column', // 🔥 這一行讓按鈕直排
+            gap: '8px'               // ✅ 每個按鈕之間有間距
+          }}
+        >
+          <a href={mlflowUrl} target="_blank" rel="noopener noreferrer">
+            <button
+              style={{
+                background: '#6f42c1',
+                color: '#fff',
+                padding: '8px 12px',
+                borderRadius: 6,
+                border: 'none',
+                cursor: 'pointer',
+                width: '100%',
+              }}
+            >
+              查看 MLflow 實驗
+            </button>
+          </a>
+          <a href={kibanaUrl} target="_blank" rel="noopener noreferrer">
+            <button
+              style={{
+                background: '#1abc9c',
+                color: '#fff',
+                padding: '8px 12px',
+                borderRadius: 6,
+                border: 'none',
+                cursor: 'pointer',
+                width: '100%',
+              }}
+            >
+              查看 Kibana 日誌
+            </button>
+          </a>
+          <a href={minioUrl} target="_blank" rel="noopener noreferrer">
+            <button
+              style={{
+                background: '#007bff',
+                color: '#fff',
+                padding: '8px 12px',
+                borderRadius: 6,
+                border: 'none',
+                cursor: 'pointer',
+                width: '100%',
+              }}
+            >
+              查看 MinIO 輸出
+            </button>
+          </a>
+        </div>
+      )}
 
       <div style={{ flexGrow: 1, height: '100%', position: 'relative' }} ref={reactFlowWrapper}>
         <ReactFlow
