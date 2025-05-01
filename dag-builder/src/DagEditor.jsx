@@ -89,25 +89,25 @@ export default function DagEditor() {
   const [kibanaUrl, setKibanaUrl] = useState(null);
   const [minioUrl, setMinioUrl] = useState(null);
 
-  useEffect(() => {
-    if (dagId && dagRunId) {
-      const interval = setInterval(async () => {
-        const response = await fetch(`http://localhost:8000/dag-status?dag_id=${dagId}&dag_run_id=${dagRunId}`);
-        const data = await response.json();
+  // useEffect(() => {
+  //   if (dagId && dagRunId) {
+  //     const interval = setInterval(async () => {
+  //       const response = await fetch(`http://localhost:8000/dag-status?dag_id=${dagId}&dag_run_id=${dagRunId}`);
+  //       const data = await response.json();
 
-        if (data.state === "success") {
-          clearInterval(interval);
-          alert("✅ DAG 執行完成！");
+  //       if (data.state === "success") {
+  //         clearInterval(interval);
+  //         alert("✅ DAG 執行完成！");
 
-          setMlflowUrl(data.mlflow_url);
-          setKibanaUrl(data.kibana_url);
-          setMinioUrl(data.minio_url);
-        }
-      }, 5000);
+  //         setMlflowUrl(data.mlflow_url);
+  //         setKibanaUrl(data.kibana_url);
+  //         setMinioUrl(data.minio_url);
+  //       }
+  //     }, 5000);
 
-      return () => clearInterval(interval);
-    }
-  }, [dagId, dagRunId]);
+  //     return () => clearInterval(interval);
+  //   }
+  // }, [dagId, dagRunId]);
 
   const getDefaultLabel = (type, config = {}) => {
     const baseLabel = nodeTypesList.find((n) => n.type === type)?.label || 'Unknown';

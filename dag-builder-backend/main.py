@@ -150,10 +150,10 @@ def deploy_dag(payload: DAGPayload):
         "",
         "def call_api_task(ti, info_source_task_ids, route, body, kafka_conf, kafka_topic):",
         "    dag_run = ti.get_dagrun()",
-        "    reserved_run_id = dag_run.conf.get('reserved_run_id') if dag_run else None",
-        "    if reserved_run_id:",
+        "    reserved_exp_run_id = dag_run.conf.get('reserved_exp_run_id') if dag_run else None",
+        "    if reserved_exp_run_id:",
         "        body = dict(body)  # 複製一份，避免汙染到原本的 body_config",
-        "        body['reserved_run_id'] = reserved_run_id",
+        "        body['reserved_exp_run_id'] = reserved_exp_run_id",
         "    ApiCaller(ti, info_source_task_ids, route, body, kafka_conf, kafka_topic).call_api()",
         ""
     ]
@@ -296,7 +296,7 @@ def trigger_dag_run(request: TriggerRequest):
         mlflow.end_run()  # 先關掉，之後 server 會用 run_id來繼續
 
         # 把預約好的 run_id 放進 conf
-        request.conf["reserved_run_id"] = mlflow_exp_run_id
+        request.conf["reserved_exp_run_id"] = mlflow_exp_run_id
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to reserve MLflow run: {e}")
@@ -365,6 +365,8 @@ def check_dag_status(dag_id: str, dag_run_id: str, reserved_exp_run_id:str):
         experiment_id = get_experiment_id_by_name(experiment_name)
 
         mlflow_url = f"http://10.52.52.142:5000/#/experiments/{experiment_id}/runs/{reserved_exp_run_id}"
+        minio_url = ""
+        kibana_url = ""
         
         return {
             "state": "success",
