@@ -68,6 +68,7 @@ const paramSchemas = {
 
 export default function DagEditor() {
   const [dagId, setDagId] = useState(null); // ⬅️ 加這一行
+  const [executionId, setExecutionId] = useState(null); // ⬅️ 加這一行
   const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
   const [idCounter, setIdCounter] = useState(1);
@@ -175,7 +176,7 @@ export default function DagEditor() {
     if (dagId && dagRunId && startPolling) {
       const interval = setInterval(async () => {
         try {
-          const response = await fetch(`http://localhost:8000/dag-status?dag_id=${dagId}&dag_run_id=${dagRunId}&reserved_exp_run_id=${reservedExpRunId}`);
+          const response = await fetch(`http://localhost:8000/dag-status?dag_id=${dagId}&execution_id=${executionId}&dag_run_id=${dagRunId}&reserved_exp_run_id=${reservedExpRunId}`);
           if (response.status === 404) {
             console.log("DAG Run 還沒註冊完成，稍後再試");
             return; // 這次跳過
@@ -305,8 +306,9 @@ export default function DagEditor() {
       if (res.ok) {
         alert("✅ DAG 已部署成功: " + data.dag_id);
         setTriggerUrl(data.airflow_url);  // optional: 這是原本開 UI 用的
-        setDagId(data.dag_id);            // ✅ 實際用來觸發 API
-        setBodyConfig(data.body_config);   // ✅ 加這行！把 body_config存起來
+        setDagId(data.dag_id);            // 實際用來觸發 API
+        setBodyConfig(data.body_config);   // 加這行！把 body_config存起來
+        setExecutionId(data.execution_id);   // 加這行！把 execution_id存起來
       } else {
         alert("❌ DAG 部署失敗: " + data.detail);
       }

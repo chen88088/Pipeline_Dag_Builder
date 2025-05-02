@@ -250,6 +250,7 @@ def deploy_dag(payload: DAGPayload):
         return {
             "message": "DAG uploaded and registered in Airflow",
             "dag_id": dag_name,
+            "execution_id": execution_id,
             "airflow_url": dag_url,
             "body_config": global_body
         }
@@ -342,7 +343,7 @@ def get_experiment_id_by_name(experiment_name: str) -> str:
     return data["experiment"]["experiment_id"]
 
 @app.get("/dag-status")
-def check_dag_status(dag_id: str, dag_run_id: str, reserved_exp_run_id:str):
+def check_dag_status(dag_id: str, execution_id: str, dag_run_id: str, reserved_exp_run_id:str):
     auth = (Config.AIRFLOW_USERNAME, Config.AIRFLOW_PASSWORD)
     base = Config.AIRFLOW_BASE_URL
 
@@ -363,16 +364,20 @@ def check_dag_status(dag_id: str, dag_run_id: str, reserved_exp_run_id:str):
         
         experiment_name = dag_id  # 你可以用 dag_id或body_config帶的
         experiment_id = get_experiment_id_by_name(experiment_name)
+        execution_id = execution_id
+        dag_id = dag_id
+
+        pipeline_unique_id =f'{dag_id}_{execution_id}' 
 
         mlflow_url = f"http://10.52.52.142:5000/#/experiments/{experiment_id}/runs/{reserved_exp_run_id}"
-        minio_url = ""
-        kibana_url = ""
+        minio_url = f"http://10.52.52.138:30000/browser/testdvcfilemanagementfordag/{pipeline_unique_id}/"
+        kibana_url = f"http://10.52.52.142:30601/app/discover#/?q=execution_id:{execution_id}"
         
         return {
             "state": "success",
             "mlflow_url": mlflow_url,
-            "kibana_url": f"http://10.52.52.142:30601/app/discover#/?q=execution_id:20250424x105023xx2azipz",
-            "minio_url": "http://10.52.52.138:30000/minio/testdvcfilemanagementfordag/mmyydag_20250424x105023xx2azipz/"
+            "kibana_url": kibana_url,
+            "minio_url": minio_url
         }
     else:
         return {"state": state}
